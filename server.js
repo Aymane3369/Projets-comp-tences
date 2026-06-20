@@ -16,7 +16,7 @@ const FILES_PER_PAGE = 20;
 
 // Créer le dossier uploads s'il n'existe pas
 if (!fs.existsSync(UPLOAD_DIR)) {
-  fs.mkdirSync(UPLOAD_DIR);
+  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 }
 
 // ========== Middleware ==========
@@ -32,7 +32,6 @@ app.use(session({
 
 // Servir les fichiers statiques (frontend)
 app.use(express.static(path.join(__dirname, 'public')));
-
 // Servir les fichiers uploads (pour les liens d'accès direct)
 app.use('/uploads', express.static(UPLOAD_DIR));
 
@@ -74,7 +73,7 @@ app.get('/api/files/:category', (req, res) => {
   const category = req.params.category;
   const page = parseInt(req.query.page) || 1;
   const categoryPath = path.join(UPLOAD_DIR, category);
-  
+
   if (!fs.existsSync(categoryPath)) {
     return res.json({ files: [], total: 0, page, totalPages: 0 });
   }
@@ -114,7 +113,6 @@ const storage = multer.diskStorage({
     cb(null, dest);
   },
   filename: (req, file, cb) => {
-    // Gérer les doublons
     const category = req.body.category;
     const baseName = path.basename(file.originalname, path.extname(file.originalname));
     const ext = path.extname(file.originalname);
@@ -147,7 +145,7 @@ app.post('/api/upload', isAdmin, upload.single('file'), (req, res) => {
   res.json({ success: true, filename: req.file.filename });
 });
 
-// Gestionnaire d'erreur Multer
+// Gestionnaire d'erreur Multer (doit être placé après la route)
 app.use((err, req, res, next) => {
   if (err instanceof multer.MulterError) {
     return res.status(400).json({ error: err.message });
@@ -184,7 +182,12 @@ app.delete('/api/file', isAdmin, (req, res) => {
   }
 });
 
+// Route par défaut pour les erreurs 404 (renvoie JSON au lieu de HTML)
+app.use((req, res) => {
+  res.status(404).json({ error: 'Route non trouvée' });
+});
+
 // ========== Démarrer le serveur ==========
 app.listen(PORT, () => {
-  console.log(`Serveur démarré sur http://localhost:${PORT}`);
+  console.log(`✅ Serveur démarré sur http://localhost:${PORT}`);
 });
