@@ -3,6 +3,7 @@ session_start();
 
 // ==================== CONFIGURATION ====================
 define('ADMIN_PASS', 'MonMotDePasseSecret'); // À modifier
+define('FICHIERS_PAR_PAGE', 20);            // Nombre de PDF affichés par page
 
 // ==================== GESTION DES ACTIONS ====================
 
@@ -25,7 +26,7 @@ if (isset($_POST['login_password'])) {
     exit;
 }
 
-// Upload (admin uniquement) - VÉRIFICATION DE LA MÉTHODE AJOUTÉE
+// Upload (admin uniquement)
 if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['fichier']) && isset($_POST['dossier'])) {
     if (!isset($_SESSION['admin']) || $_SESSION['admin'] !== true) {
         $_SESSION['message'] = 'Action non autorisée.';
@@ -106,9 +107,12 @@ $categories = [
     ]
 ];
 
-function listerPDF($dossier) {
+/**
+ * Liste les PDF d'un dossier avec pagination
+ */
+function listerPDF($dossier, $page = 1) {
     $chemin = __DIR__ . '/uploads/' . $dossier;
-    if (!is_dir($chemin)) return [];
+    if (!is_dir($chemin)) return ['fichiers' => [], 'total' => 0, 'page' => $page];
     $fichiers = scandir($chemin);
     $pdfs = [];
     foreach ($fichiers as $f) {
@@ -116,7 +120,12 @@ function listerPDF($dossier) {
             $pdfs[] = $f;
         }
     }
-    return $pdfs;
+    sort($pdfs); // Tri alphabétique
+    $total = count($pdfs);
+    $parPage = FICHIERS_PAR_PAGE;
+    $offset = ($page - 1) * $parPage;
+    $pdfsPage = array_slice($pdfs, $offset, $parPage);
+    return ['fichiers' => $pdfsPage, 'total' => $total, 'page' => $page, 'parPage' => $parPage];
 }
 
 function afficherCategorie($nom, $dossier, $isAdmin, $niveau = 0) {
@@ -128,9 +137,17 @@ function afficherCategorie($nom, $dossier, $isAdmin, $niveau = 0) {
         }
         echo '</div>';
     } else {
-        $pdfs = listerPDF($dossier);
+        // Récupération de la page via GET (pour chaque catégorie)
+        $page = isset($_GET['page_' . $dossier]) ? (int)$_GET['page_' . $dossier] : 1;
+        if ($page < 1) $page = 1;
+        $result = listerPDF($dossier, $page);
+        $pdfs = $result['fichiers'];
+        $total = $result['total'];
+        $parPage = $result['parPage'];
+        $totalPages = ceil($total / $parPage);
+        
         echo '<div class="categorie" style="margin-left: ' . ($niveau * 20) . 'px;">';
-        echo '<h4>' . htmlspecialchars($nom) . '</h4>';
+        echo '<h4>' . htmlspecialchars($nom) . ' <span class="compteur">(' . $total . ' PDF)</span></h4>';
         if (count($pdfs) > 0) {
             echo '<ul>';
             foreach ($pdfs as $pdf) {
@@ -144,6 +161,18 @@ function afficherCategorie($nom, $dossier, $isAdmin, $niveau = 0) {
                 echo '</li>';
             }
             echo '</ul>';
+            // Pagination
+            if ($totalPages > 1) {
+                echo '<div class="pagination">';
+                if ($page > 1) {
+                    echo '<a href="?page_' . $dossier . '=' . ($page - 1) . '#categorie-' . $dossier . '">◀ Précédent</a>';
+                }
+                echo ' <span>Page ' . $page . ' / ' . $totalPages . '</span> ';
+                if ($page < $totalPages) {
+                    echo '<a href="?page_' . $dossier . '=' . ($page + 1) . '#categorie-' . $dossier . '">Suivant ▶</a>';
+                }
+                echo '</div>';
+            }
         } else {
             echo '<p>Aucun PDF pour le moment.</p>';
         }
@@ -165,7 +194,6 @@ function afficherCategorie($nom, $dossier, $isAdmin, $niveau = 0) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Quelques projets</title>
     <style>
-        /* === Styles === (inchangés) */
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f5f7fa; padding: 20px; }
         .container { max-width: 1000px; margin: 0 auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
@@ -186,6 +214,7 @@ function afficherCategorie($nom, $dossier, $isAdmin, $niveau = 0) {
         .categorie { margin-bottom: 15px; }
         .categorie h3 { color: #2980b9; margin: 10px 0 5px 0; font-size: 1.1em; }
         .categorie h4 { color: #34495e; margin: 8px 0 4px 0; font-size: 1em; }
+        .compteur { font-size: 0.9em; color: #7f8c8d; font-weight: normal; }
         .categorie ul { list-style: none; padding-left: 10px; }
         .categorie ul li { padding: 4px 0; display: flex; align-items: center; flex-wrap: wrap; }
         .categorie ul li a { color: #2980b9; text-decoration: none; margin-right: 10px; }
@@ -196,6 +225,9 @@ function afficherCategorie($nom, $dossier, $isAdmin, $niveau = 0) {
         .upload-form input[type="file"] { padding: 5px; border: 1px solid #bdc3c7; border-radius: 4px; }
         .upload-form button { background: #3498db; color: white; border: none; padding: 6px 16px; border-radius: 4px; cursor: pointer; font-size: 0.9em; }
         .upload-form button:hover { background: #2980b9; }
+        .pagination { margin: 10px 0; font-size: 0.95em; display: flex; gap: 15px; align-items: center; }
+        .pagination a { color: #3498db; text-decoration: none; }
+        .pagination a:hover { text-decoration: underline; }
         p { color: #7f8c8d; font-style: italic; }
     </style>
 </head>
@@ -227,7 +259,7 @@ function afficherCategorie($nom, $dossier, $isAdmin, $niveau = 0) {
             foreach ($categories as $nom => $dossier) {
                 echo '<div class="accordion-item">';
                 echo '<div class="accordion-header">' . htmlspecialchars($nom) . '</div>';
-                echo '<div class="accordion-content">';
+                echo '<div class="accordion-content" id="categorie-' . (is_array($dossier) ? '' : $dossier) . '">';
                 afficherCategorie($nom, $dossier, $isAdmin, 0);
                 echo '</div></div>';
             }
