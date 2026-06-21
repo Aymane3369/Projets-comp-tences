@@ -1,403 +1,205 @@
+<?php
+session_start();
+define('ADMIN_PASS', 'MonMotDePasseSecret');
+
+// ===== Gestion des actions =====
+if (isset($_GET['logout'])) {
+    session_destroy();
+    header('Location: index.php');
+    exit;
+}
+if (isset($_POST['login_password'])) {
+    if ($_POST['login_password'] === ADMIN_PASS) {
+        $_SESSION['admin'] = true;
+        $_SESSION['message'] = 'Connecté.';
+    } else {
+        $_SESSION['message'] = 'Mot de passe incorrect.';
+    }
+    header('Location: index.php');
+    exit;
+}
+
+// Ajout / suppression de lien (admin)
+if (isset($_POST['action']) && $_SESSION['admin'] ?? false) {
+    $jsonFile = 'links.json';
+    $links = file_exists($jsonFile) ? json_decode(file_get_contents($jsonFile), true) : [];
+    if ($_POST['action'] === 'add') {
+        $category = $_POST['category'];
+        $name = $_POST['name'];
+        $url = $_POST['url'];
+        if (!isset($links[$category])) $links[$category] = [];
+        $links[$category][] = ['name' => $name, 'url' => $url];
+        file_put_contents($jsonFile, json_encode($links));
+        $_SESSION['message'] = 'Lien ajouté.';
+    } elseif ($_POST['action'] === 'delete') {
+        $category = $_POST['category'];
+        $index = (int)$_POST['index'];
+        if (isset($links[$category][$index])) {
+            unset($links[$category][$index]);
+            $links[$category] = array_values($links[$category]); // réindexer
+            file_put_contents($jsonFile, json_encode($links));
+            $_SESSION['message'] = 'Lien supprimé.';
+        }
+    }
+    header('Location: index.php');
+    exit;
+}
+
+$isAdmin = $_SESSION['admin'] ?? false;
+$message = $_SESSION['message'] ?? '';
+unset($_SESSION['message']);
+
+// Charger les liens
+$links = file_exists('links.json') ? json_decode(file_get_contents('links.json'), true) : [];
+
+// Catégories (fixes) – vous pouvez les modifier
+$categories = [
+    'Béton armé et Contreventement' => 'beton_arme',
+    'Bois' => 'bois',
+    'Construction Métallique et mixte' => 'metal',
+    'Géotechnique' => 'geotechnique',
+    'Projets' => 'projets',
+    'logiciels' => 'logiciels'
+];
+// Sous-catégories pour Projets et logiciels
+$subCategories = [
+    'projets' => ['BA', 'Construction mixte'],
+    'logiciels' => ['Robot', 'Kréa', 'Plaxis']
+];
+?>
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>📁 Quelques projets</title>
-  <style>
-    /* (même style que précédemment, inchangé) */
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f5f7fa; padding: 20px; }
-    .container { max-width: 1000px; margin: 0 auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-    h1 { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; margin-bottom: 20px; }
-    .message { background: #d4edda; color: #155724; padding: 10px; border-radius: 4px; margin-bottom: 15px; border: 1px solid #c3e6cb; display: none; }
-    .admin-bar { background: #ecf0f1; padding: 10px 15px; border-radius: 6px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; }
-    .btn-login, .btn-logout { background: #3498db; color: white; padding: 5px 15px; border-radius: 4px; text-decoration: none; font-size: 0.9em; cursor: pointer; border: none; }
-    .btn-logout { background: #e74c3c; }
-    .btn-login:hover { background: #2980b9; }
-    .btn-logout:hover { background: #c0392b; }
-    #loginForm { width: 100%; margin-top: 8px; }
-    #loginForm input[type="password"] { padding: 5px; border: 1px solid #bdc3c7; border-radius: 4px; }
-    #loginForm button { background: #2ecc71; color: white; border: none; padding: 5px 15px; border-radius: 4px; cursor: pointer; }
-    .accordion-item { border-bottom: 1px solid #e0e0e0; }
-    .accordion-header { background: #ecf0f1; padding: 15px; font-weight: bold; cursor: pointer; transition: background 0.2s; }
-    .accordion-header:hover { background: #d5dbe0; }
-    .accordion-content { padding: 15px 20px; display: none; }
-    .categorie { margin-bottom: 15px; }
-    .categorie h3 { color: #2980b9; margin: 10px 0 5px 0; font-size: 1.1em; }
-    .categorie h4 { color: #34495e; margin: 8px 0 4px 0; font-size: 1em; }
-    .compteur { font-size: 0.9em; color: #7f8c8d; font-weight: normal; }
-    .categorie ul { list-style: none; padding-left: 10px; }
-    .categorie ul li { padding: 4px 0; display: flex; align-items: center; flex-wrap: wrap; }
-    .categorie ul li a { color: #2980b9; text-decoration: none; margin-right: 10px; }
-    .categorie ul li a:hover { text-decoration: underline; }
-    .btn-delete { color: #e74c3c; text-decoration: none; font-size: 1.1em; font-weight: bold; cursor: pointer; background: none; border: none; }
-    .btn-delete:hover { color: #c0392b; }
-    .upload-form { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
-    .upload-form input[type="file"] { padding: 5px; border: 1px solid #bdc3c7; border-radius: 4px; }
-    .upload-form button { background: #3498db; color: white; border: none; padding: 6px 16px; border-radius: 4px; cursor: pointer; font-size: 0.9em; }
-    .upload-form button:hover { background: #2980b9; }
-    .pagination { margin: 10px 0; font-size: 0.95em; display: flex; gap: 15px; align-items: center; }
-    .pagination a { color: #3498db; text-decoration: none; cursor: pointer; }
-    .pagination a:hover { text-decoration: underline; }
-    p { color: #7f8c8d; font-style: italic; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quelques projets</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f5f7fa; padding: 20px; }
+        .container { max-width: 1000px; margin: 0 auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1 { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; margin-bottom: 20px; }
+        .message { background: #d4edda; color: #155724; padding: 10px; border-radius: 4px; margin-bottom: 15px; border: 1px solid #c3e6cb; display: <?= $message ? 'block' : 'none' ?>; }
+        .admin-bar { background: #ecf0f1; padding: 10px 15px; border-radius: 6px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; }
+        .btn-login, .btn-logout { background: #3498db; color: white; padding: 5px 15px; border-radius: 4px; text-decoration: none; font-size: 0.9em; cursor: pointer; border: none; }
+        .btn-logout { background: #e74c3c; }
+        #loginForm { width: 100%; margin-top: 8px; }
+        #loginForm input[type="password"] { padding: 5px; border: 1px solid #bdc3c7; border-radius: 4px; }
+        #loginForm button { background: #2ecc71; color: white; border: none; padding: 5px 15px; border-radius: 4px; cursor: pointer; }
+        .accordion-item { border-bottom: 1px solid #e0e0e0; }
+        .accordion-header { background: #ecf0f1; padding: 15px; font-weight: bold; cursor: pointer; transition: background 0.2s; }
+        .accordion-header:hover { background: #d5dbe0; }
+        .accordion-content { padding: 15px 20px; display: none; }
+        .categorie { margin-bottom: 15px; }
+        .categorie h3 { color: #2980b9; margin: 10px 0 5px 0; font-size: 1.1em; }
+        .categorie h4 { color: #34495e; margin: 8px 0 4px 0; font-size: 1em; }
+        .categorie ul { list-style: none; padding-left: 10px; }
+        .categorie ul li { padding: 4px 0; display: flex; align-items: center; flex-wrap: wrap; }
+        .categorie ul li a { color: #2980b9; text-decoration: none; margin-right: 10px; }
+        .categorie ul li a:hover { text-decoration: underline; }
+        .btn-delete { color: #e74c3c; text-decoration: none; font-size: 1.1em; font-weight: bold; cursor: pointer; background: none; border: none; }
+        .add-link-form { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+        .add-link-form input[type="text"], .add-link-form input[type="url"] { padding: 5px; border: 1px solid #bdc3c7; border-radius: 4px; flex: 1; }
+        .add-link-form button { background: #3498db; color: white; border: none; padding: 6px 16px; border-radius: 4px; cursor: pointer; }
+        p { color: #7f8c8d; font-style: italic; }
+    </style>
 </head>
 <body>
 <div class="container">
-  <h1>📁 Quelques projets</h1>
-  <div id="message" class="message"></div>
-
-  <div class="admin-bar">
-    <span id="adminStatus">👤 Visiteur</span>
-    <div>
-      <button id="loginBtn" class="btn-login">🔒 Connexion admin</button>
-      <button id="logoutBtn" class="btn-logout" style="display:none;">Déconnexion</button>
+    <h1>📁 Quelques projets</h1>
+    <?php if ($message): ?><div class="message"><?= htmlspecialchars($message) ?></div><?php endif; ?>
+    <div class="admin-bar">
+        <span><?= $isAdmin ? '👋 Admin connecté' : '👤 Visiteur' ?></span>
+        <?php if ($isAdmin): ?>
+            <a href="?logout=1" class="btn-logout">Déconnexion</a>
+        <?php else: ?>
+            <a href="#" id="showLogin" class="btn-login">🔒 Connexion admin</a>
+            <div id="loginForm" style="display:none; margin-top:10px; width:100%;">
+                <form method="post" action="index.php">
+                    <input type="password" name="login_password" placeholder="Mot de passe" required>
+                    <button type="submit">Se connecter</button>
+                </form>
+            </div>
+        <?php endif; ?>
     </div>
-    <div id="loginForm" style="display:none; margin-top:10px; width:100%;">
-      <input type="password" id="passwordInput" placeholder="Mot de passe">
-      <button id="submitLogin">Se connecter</button>
-    </div>
-  </div>
 
-  <div id="accordion">
-    <!-- Les catégories seront générées par JavaScript -->
-  </div>
+    <div id="accordion">
+        <?php foreach ($categories as $nom => $key): ?>
+            <div class="accordion-item">
+                <div class="accordion-header"><?= htmlspecialchars($nom) ?></div>
+                <div class="accordion-content">
+                    <?php if (isset($subCategories[$key])): ?>
+                        <?php foreach ($subCategories[$key] as $sousNom): ?>
+                            <?php $sousKey = $key . '_' . $sousNom; ?>
+                            <div class="categorie">
+                                <h4><?= htmlspecialchars($sousNom) ?></h4>
+                                <?php afficherLiens($links, $sousKey, $isAdmin); ?>
+                                <?php if ($isAdmin): ?>
+                                    <form method="post" class="add-link-form">
+                                        <input type="hidden" name="action" value="add">
+                                        <input type="hidden" name="category" value="<?= $sousKey ?>">
+                                        <input type="text" name="name" placeholder="Nom du lien" required>
+                                        <input type="url" name="url" placeholder="URL du PDF" required>
+                                        <button type="submit">Ajouter</button>
+                                    </form>
+                                <?php endif; ?>
+                            </div>
+                        <?php endforeach; ?>
+                    <?php else: ?>
+                        <?php afficherLiens($links, $key, $isAdmin); ?>
+                        <?php if ($isAdmin): ?>
+                            <form method="post" class="add-link-form">
+                                <input type="hidden" name="action" value="add">
+                                <input type="hidden" name="category" value="<?= $key ?>">
+                                <input type="text" name="name" placeholder="Nom du lien" required>
+                                <input type="url" name="url" placeholder="URL du PDF" required>
+                                <button type="submit">Ajouter</button>
+                            </form>
+                        <?php endif; ?>
+                    <?php endif; ?>
+                </div>
+            </div>
+        <?php endforeach; ?>
+    </div>
 </div>
-
+<?php
+function afficherLiens($links, $category, $isAdmin) {
+    $items = $links[$category] ?? [];
+    if (count($items) === 0) {
+        echo '<p>Aucun lien pour cette catégorie.</p>';
+        return;
+    }
+    echo '<ul>';
+    foreach ($items as $i => $item) {
+        echo '<li>';
+        echo '<a href="' . htmlspecialchars($item['url']) . '" target="_blank">' . htmlspecialchars($item['name']) . '</a>';
+        if ($isAdmin) {
+            echo '<form method="post" style="display:inline; margin-left:10px;">
+                    <input type="hidden" name="action" value="delete">
+                    <input type="hidden" name="category" value="' . $category . '">
+                    <input type="hidden" name="index" value="' . $i . '">
+                    <button type="submit" class="btn-delete" onclick="return confirm(\'Supprimer ce lien ?\')">🗑️</button>
+                  </form>';
+        }
+        echo '</li>';
+    }
+    echo '</ul>';
+}
+?>
 <script>
-  // ===== Configuration =====
-  const categories = {
-    'Béton armé et Contreventement': 'beton_arme_contreventement',
-    'Bois': 'bois',
-    'Construction Métallique et mixte': 'construction_metallique_mixte',
-    'Géotechnique': 'geotechnique',
-    'Projets': {
-      'BA': 'projets/ba',
-      'Construction mixte': 'projets/construction_mixte'
-    },
-    'logiciels': {
-      'Robot': 'logiciels/robot',
-      'Kréa': 'logiciels/krea',
-      'Plaxis': 'logiciels/plaxis'
-    }
-  };
+    // Accordéon
+    document.querySelectorAll('.accordion-header').forEach(header => {
+        header.addEventListener('click', function() {
+            const content = this.nextElementSibling;
+            content.style.display = content.style.display === 'block' ? 'none' : 'block';
+        });
+    });
+    document.querySelector('.accordion-content').style.display = 'block';
 
-  let isAdmin = false;
-
-  // ===== Fonctions utilitaires =====
-  function showMessage(msg, isError = false) {
-    const el = document.getElementById('message');
-    el.textContent = msg;
-    el.style.display = 'block';
-    el.style.background = isError ? '#f8d7da' : '#d4edda';
-    el.style.color = isError ? '#721c24' : '#155724';
-    setTimeout(() => { el.style.display = 'none'; }, 5000);
-  }
-
-  async function apiCall(url, options = {}) {
-    try {
-      const res = await fetch(url, {
-        ...options,
-        headers: { 'Content-Type': 'application/json', ...options.headers }
-      });
-      // Vérifier le type de contenu
-      const contentType = res.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
-        const text = await res.text();
-        throw new Error(`Réponse non JSON (${res.status}): ${text.substring(0, 100)}`);
-      }
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || `Erreur ${res.status}`);
-      }
-      return data;
-    } catch (err) {
-      // Ré-erreur pour que l'appelant puisse l'attraper
-      throw err;
-    }
-  }
-
-  // ===== Gestion admin =====
-  async function checkAdminStatus() {
-    try {
-      const data = await apiCall('/api/status');
-      isAdmin = data.admin;
-      updateAdminUI();
-    } catch (e) {
-      console.error(e);
-      showMessage('Erreur de connexion au serveur', true);
-    }
-  }
-
-  function updateAdminUI() {
-    document.getElementById('adminStatus').textContent = isAdmin ? '👋 Admin connecté' : '👤 Visiteur';
-    document.getElementById('loginBtn').style.display = isAdmin ? 'none' : 'inline-block';
-    document.getElementById('logoutBtn').style.display = isAdmin ? 'inline-block' : 'none';
-    document.getElementById('loginForm').style.display = 'none';
-    renderCategories();
-  }
-
-  document.getElementById('loginBtn').addEventListener('click', () => {
-    const form = document.getElementById('loginForm');
-    form.style.display = form.style.display === 'block' ? 'none' : 'block';
-  });
-
-  document.getElementById('submitLogin').addEventListener('click', async () => {
-    const password = document.getElementById('passwordInput').value;
-    try {
-      const data = await apiCall('/api/login', {
-        method: 'POST',
-        body: JSON.stringify({ password })
-      });
-      showMessage(data.message);
-      isAdmin = true;
-      updateAdminUI();
-    } catch (e) {
-      showMessage(e.message, true);
-    }
-  });
-
-  document.getElementById('logoutBtn').addEventListener('click', async () => {
-    try {
-      await apiCall('/api/logout');
-      isAdmin = false;
-      updateAdminUI();
-      showMessage('Déconnecté');
-    } catch (e) {
-      showMessage(e.message, true);
-    }
-  });
-
-  // ===== Affichage des catégories =====
-  function renderCategories() {
-    const container = document.getElementById('accordion');
-    container.innerHTML = '';
-    for (const [nom, dossier] of Object.entries(categories)) {
-      const item = document.createElement('div');
-      item.className = 'accordion-item';
-      const header = document.createElement('div');
-      header.className = 'accordion-header';
-      header.textContent = nom;
-      const content = document.createElement('div');
-      content.className = 'accordion-content';
-      content.style.display = 'none';
-      buildCategoryContent(content, nom, dossier, 0);
-      item.appendChild(header);
-      item.appendChild(content);
-      container.appendChild(item);
-
-      header.addEventListener('click', () => {
-        const isOpen = content.style.display === 'block';
-        content.style.display = isOpen ? 'none' : 'block';
-        if (!isOpen) {
-          loadCategory(content, dossier);
-        }
-      });
-    }
-    // Ouvrir le premier par défaut
-    const firstContent = container.querySelector('.accordion-content');
-    if (firstContent) {
-      firstContent.style.display = 'block';
-      loadCategory(firstContent, Object.values(categories)[0]);
-    }
-  }
-
-  function buildCategoryContent(container, nom, dossier, niveau) {
-    const wrapper = document.createElement('div');
-    wrapper.className = 'categorie';
-    wrapper.style.marginLeft = (niveau * 20) + 'px';
-
-    if (typeof dossier === 'object' && !Array.isArray(dossier)) {
-      const h3 = document.createElement('h3');
-      h3.textContent = nom;
-      wrapper.appendChild(h3);
-      for (const [sousNom, sousDossier] of Object.entries(dossier)) {
-        buildCategoryContent(wrapper, sousNom, sousDossier, niveau + 1);
-      }
-    } else {
-      const h4 = document.createElement('h4');
-      h4.textContent = nom;
-      const span = document.createElement('span');
-      span.className = 'compteur';
-      span.textContent = ' (0)';
-      h4.appendChild(span);
-      wrapper.appendChild(h4);
-
-      const list = document.createElement('ul');
-      list.id = 'list-' + dossier;
-      wrapper.appendChild(list);
-
-      const paginationDiv = document.createElement('div');
-      paginationDiv.className = 'pagination';
-      paginationDiv.id = 'pagination-' + dossier;
-      wrapper.appendChild(paginationDiv);
-
-      if (isAdmin) {
-        const form = document.createElement('form');
-        form.className = 'upload-form';
-        form.onsubmit = (e) => handleUpload(e, dossier);
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.name = 'file';
-        input.accept = '.pdf';
-        input.required = true;
-        const btn = document.createElement('button');
-        btn.type = 'submit';
-        btn.textContent = 'Téléverser un PDF';
-        form.appendChild(input);
-        form.appendChild(btn);
-        wrapper.appendChild(form);
-      }
-
-      wrapper.dataset.dossier = dossier;
-      container.appendChild(wrapper);
-    }
-  }
-
-  async function loadCategory(container, dossier) {
-    const wrapper = container.querySelector(`.categorie[data-dossier="${dossier}"]`);
-    if (!wrapper) {
-      const allWrappers = container.querySelectorAll('.categorie');
-      for (const w of allWrappers) {
-        if (w.dataset.dossier === dossier) {
-          await loadFiles(w, dossier, 1);
-          break;
-        }
-      }
-      return;
-    }
-    const page = 1; // par défaut on recharge depuis la page 1
-    await loadFiles(wrapper, dossier, page);
-  }
-
-  async function loadFiles(wrapper, dossier, page) {
-    const list = wrapper.querySelector('ul');
-    const paginationDiv = wrapper.querySelector('.pagination');
-    const compteur = wrapper.querySelector('.compteur');
-
-    try {
-      const data = await apiCall(`/api/files/${encodeURIComponent(dossier)}?page=${page}`);
-      if (compteur) compteur.textContent = ` (${data.total})`;
-
-      list.innerHTML = '';
-      if (data.files.length === 0) {
-        list.innerHTML = '<p>Aucun PDF pour le moment.</p>';
-      } else {
-        for (const file of data.files) {
-          const li = document.createElement('li');
-          const link = document.createElement('a');
-          link.href = `/uploads/${dossier}/${encodeURIComponent(file)}`;
-          link.target = '_blank';
-          link.textContent = file;
-          li.appendChild(link);
-          if (isAdmin) {
-            const delBtn = document.createElement('button');
-            delBtn.className = 'btn-delete';
-            delBtn.textContent = '🗑️';
-            delBtn.onclick = () => {
-              if (confirm('Supprimer définitivement ce fichier ?')) {
-                deleteFile(dossier, file, wrapper);
-              }
-            };
-            li.appendChild(delBtn);
-          }
-          list.appendChild(li);
-        }
-      }
-
-      paginationDiv.innerHTML = '';
-      if (data.totalPages > 1) {
-        const prev = document.createElement('a');
-        prev.textContent = '◀ Précédent';
-        if (data.page > 1) {
-          prev.href = '#';
-          prev.onclick = (e) => { e.preventDefault(); loadFiles(wrapper, dossier, data.page - 1); };
-        } else {
-          prev.style.opacity = '0.5';
-          prev.style.pointerEvents = 'none';
-        }
-        paginationDiv.appendChild(prev);
-
-        const span = document.createElement('span');
-        span.textContent = `Page ${data.page} / ${data.totalPages}`;
-        paginationDiv.appendChild(span);
-
-        const next = document.createElement('a');
-        next.textContent = 'Suivant ▶';
-        if (data.page < data.totalPages) {
-          next.href = '#';
-          next.onclick = (e) => { e.preventDefault(); loadFiles(wrapper, dossier, data.page + 1); };
-        } else {
-          next.style.opacity = '0.5';
-          next.style.pointerEvents = 'none';
-        }
-        paginationDiv.appendChild(next);
-      }
-    } catch (e) {
-      showMessage('Erreur de chargement : ' + e.message, true);
-    }
-  }
-
-  // ===== Upload =====
-  async function handleUpload(e, dossier) {
-    e.preventDefault();
-    const form = e.target;
-    const fileInput = form.querySelector('input[type="file"]');
-    const file = fileInput.files[0];
-    if (!file) return;
-
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('category', dossier);
-
-    try {
-      const res = await fetch('/api/upload', {
-        method: 'POST',
-        body: formData,
-        credentials: 'same-origin'
-      });
-      const contentType = res.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
-        const text = await res.text();
-        throw new Error(`Erreur serveur: ${text.substring(0, 100)}`);
-      }
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Erreur upload');
-      showMessage('Fichier téléversé avec succès !');
-      fileInput.value = '';
-      // Recharger la liste (page 1)
-      const wrapper = form.closest('.categorie');
-      loadFiles(wrapper, dossier, 1);
-    } catch (e) {
-      showMessage(e.message, true);
-    }
-  }
-
-  // ===== Suppression =====
-  async function deleteFile(dossier, filename, wrapper) {
-    try {
-      const res = await fetch(`/api/file?category=${encodeURIComponent(dossier)}&filename=${encodeURIComponent(filename)}`, {
-        method: 'DELETE',
-        credentials: 'same-origin'
-      });
-      const contentType = res.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
-        const text = await res.text();
-        throw new Error(`Erreur serveur: ${text.substring(0, 100)}`);
-      }
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Erreur suppression');
-      showMessage('Fichier supprimé.');
-      loadFiles(wrapper, dossier, 1);
-    } catch (e) {
-      showMessage(e.message, true);
-    }
-  }
-
-  // ===== Initialisation =====
-  checkAdminStatus();
-  renderCategories();
+    document.getElementById('showLogin')?.addEventListener('click', function(e) {
+        e.preventDefault();
+        const form = document.getElementById('loginForm');
+        form.style.display = form.style.display === 'block' ? 'none' : 'block';
+    });
 </script>
 </body>
 </html>
